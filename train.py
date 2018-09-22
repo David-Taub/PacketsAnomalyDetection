@@ -5,12 +5,15 @@ from numpy import array
 from keras.preprocessing.text import Tokenizer
 from keras.utils import to_categorical
 from keras.preprocessing.sequence import pad_sequences
+from keras import metrics
 from keras.models import Sequential
 from keras.layers import Dense, Reshape
 from keras.layers import Conv2D
 from keras.layers import LSTM
-from keras.layers import Embedding
+from keras.layers import Bidirectional
+from keras.layers import Flatten
 from keras.layers import Input, Dense
+from keras.layers import Dropout
 from keras.models import Model
 from keras import regularizers
 
@@ -21,8 +24,8 @@ ENCODER_MODEL_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetecti
 # Y_TRAIN_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\y_train.mm'
 # X_VALIDATION_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\x_validation.mm'
 # Y_VALIDATION_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\y_validation.mm'
-ENCODING_DIM = 40
-SLIDING_WINDOW_WIDTH = 20
+ENCODING_DIM = 60
+SLIDING_WINDOW_WIDTH = 50
 
 
 def generator(data, window_size, batch_size):
@@ -40,16 +43,25 @@ data = np.load(TXT_FILEPATH.replace('.txt', '.npy'))
 packet_features = data.shape[1]
 # TODO: code duplication, save it in json file in preprocessing
 validation_ratio = 0.1
+DROUPUT_RATE = 0.2
+LSTM_SIZE = 50
 train_size = int((data.shape[0] - SLIDING_WINDOW_WIDTH) * (1 - validation_ratio))
 
 model = Sequential()
-input_layer = Input(shape=(SLIDING_WINDOW_WIDTH - 1, packet_features))
-# model.add(Reshape((SLIDING_WINDOW_WIDTH - 1, packet_features, 1)))
-# model.add(Conv2D(ENCODING_DIM, (1, packet_features)))
-# model.add(Reshape((SLIDING_WINDOW_WIDTH - 1, ENCODING_DIM)))
-model.add(LSTM(100, input_shape=(SLIDING_WINDOW_WIDTH - 1, packet_features)))
-model.add(Dense(packet_features, activation='sigmoid'))
-model.compile(optimizer='adam', loss='categorical_crossentropy')
+
+ENCODING_DIM = packet_features
+#TODO: load weights from autoencoder
+# model.add(Reshape((SLIDING_WINDOW_WIDTH - 1, packet_features, 1), input_shape=(SLIDING_WINDOW_WIDTH - 1, packet_features)))
+# model.add(Conv2D(ENCODING_DIM, (1, packet_features), input_shape=(SLIDING_WINDOW_WIDTH - 1, packet_features, 1)))
+# model.add(Reshape((SLIDING_WINDOW_WIDTH - 1, ENCODING_DIM), input_shape=(SLIDING_WINDOW_WIDTH - 1, ENCODING_DIM, 1)))
+
+model.add(Bidirectional(LSTM(LSTM_SIZE, return_sequences=True), input_shape=(SLIDING_WINDOW_WIDTH - 1, ENCODING_DIM), merge_mode='concat', name='BiLSTM1'))
+model.add(Dropout(DROUPUT_RATE, input_shape=(2, LSTM_SIZE), name='dropout1'))
+model.add(Bidirectional(LSTM(LSTM_SIZE), input_shape=(1, LSTM_SIZE), merge_mode='concat', name='BiLSTM2'))
+model.add(Dense(100, input_shape=(2 * LSTM_SIZE,), activation='relu', name='dense1'))
+model.add(Dropout(DROUPUT_RATE, input_shape=(100,), name='dropout2'))
+model.add(Dense(packet_features, input_shape=(100,), activation='sigmoid', name='dense2'))
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=[metrics.binary_accuracy])
 callbacks = [EarlyStopping(patience=10), ModelCheckpoint(ENCODER_MODEL_FILEPATH, save_best_only=True)]
 
 
