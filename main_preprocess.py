@@ -5,13 +5,14 @@ import sklearn.preprocessing
 import sklearn.decomposition
 import sklearn.cluster
 
+ATTACK_TXT_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\attacked_recording_01.txt'
 
-TXT_FILEPATH = r'C:\Users\booga\Dropbox\projects\argus\Argus_Protocol_Research\reference_recording_01.txt'
-ENCODER_MODEL_FILEPATH = r'C:\Users\booga\Dropbox\projects\argus\Argus_Protocol_Research\encoder.h5'
-X_TRAIN_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\argus\Argus_Protocol_Research\x_train.mm'
-Y_TRAIN_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\argus\Argus_Protocol_Research\y_train.mm'
-X_VALIDATION_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\argus\Argus_Protocol_Research\x_validation.mm'
-Y_VALIDATION_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\argus\Argus_Protocol_Research\y_validation.mm'
+TXT_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\reference_recording_01.txt'
+ENCODER_MODEL_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\encoder.h5'
+X_TRAIN_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\x_train.mm'
+Y_TRAIN_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\y_train.mm'
+X_VALIDATION_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\x_validation.mm'
+Y_VALIDATION_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\y_validation.mm'
 SLIDING_WINDOW_WIDTH = 20
 
 
@@ -26,37 +27,49 @@ def convert_txt_to_csv(txt_filepath, csv_filepath):
 
 
 def enum_to_onehot(enum):
+    print('running enum_to_onehot...')
     values, enum_ids = np.unique(enum, return_inverse=True)
     packet_amount = enum.shape[0]
     bins = len(values)
     onehot_values = np.zeros((packet_amount, bins))
-    onehot_values[enum_ids] = 1
+    onehot_values[np.arange(packet_amount), enum_ids] = 1
+    print(onehot_values.shape[1])
     return onehot_values
 
 
 def int_to_onehot(int_column):
+    print('running int_to_onehot...')
     packet_amount = int_column.shape[0]
     bins = np.max(int_column)
+    ints = int_column.ravel().astype('int64') - 1
     onehot_values = np.zeros((packet_amount, bins))
-    onehot_values[int_column.astype('int')] = 1.0
+    onehot_values[np.arange(packet_amount), ints] = 1
+    print(onehot_values.shape[1])
     return onehot_values
 
 
 def hex_to_onehot(data_strings):
+    print('running hex_to_onehot...')
     packet_amount = data_strings.shape[0]
     strings_lengths = np.vectorize(len)(data_strings) / 2
     bin_repr_length = int(np.max(strings_lengths)) * 8
     bin_repr = np.vectorize(lambda x: bin(int(x, 16))[2:].zfill(bin_repr_length))(data_strings)
     bin_repr = bin_repr.view('U1').reshape((packet_amount, -1))
     bin_repr = (bin_repr == '1').astype('float')
+    print(bin_repr.shape[1])
     return bin_repr
 
 
 def diff_column(float_column):
+    print('running diff_column...')
     MAX_ALLOWED_TIME_DIFF = 100.0
-    SESSION_START_SYMBOL = 0.0
+    SESSION_START_SYMBOL = -1.0
     diff = np.ediff1d(float_column, to_begin=SESSION_START_SYMBOL)
     diff[np.any((diff < 0.0, diff > MAX_ALLOWED_TIME_DIFF), axis=0)] = SESSION_START_SYMBOL
+
+    diff = np.expand_dims(diff, axis=1)
+    return diff
+
     for i in [7.0, 8.0, 9.0]:
         diff[np.all((diff > i, diff < i + 1))] = i
     diff[diff > 10.0] = 10.0
@@ -69,8 +82,10 @@ def preprocess(data):
     # 000001.100|0200|8|3e9001f43e800dea|2
     # row structure:
     # timestamp, packet type, data_length, data, source
+    data = data[:, :-1]
     column_funcs = (diff_column, enum_to_onehot, int_to_onehot, hex_to_onehot, enum_to_onehot)
-    transformed = [column_funcs[i](data[:, [i]]) for i in range(data.shape[1])]
+    column_funcs = (diff_column, enum_to_onehot, int_to_onehot, hex_to_onehot)
+    transformed = [column_funcs[i](data[:, [i]]) for i in range(len(column_funcs))]
     processed_data = np.concatenate(transformed, 1)
     print('Feature expanded from %d to %d' % (data.shape[1], processed_data.shape[1]))
     return processed_data.astype('float')
@@ -112,16 +127,48 @@ def gen_sequences(processed_data):
 
 
 
-def main():
-    print("Reading CSV...")
-    data = load_data(TXT_FILEPATH)
-    print("Preprocessing...")
-    processed_data = preprocess(data)
-    print("Saving data...")
-    np.save(TXT_FILEPATH.replace('.txt', '.npy'), processed_data)
-    print("Generating sequences...")
-    gen_sequences(processed_data)
-    print('Done')
+# def main():
+print("Reading CSV...")
+data = load_data(TXT_FILEPATH)
+print("Preprocessing...")
+processed_data = preprocess(data)
+print("Saving data...")
+np.save(TXT_FILEPATH.replace('.txt', 'raw.npy'), data)
+np.save(TXT_FILEPATH.replace('.txt', '.npy'), processed_data)
 
-if __name__ == '__main__':
-    main()
+types = enum_to_onehot(data[:, 1])
+for i in range(types.shape[1]):
+    sub_data = data[types[:, i] == 1.0, :]
+    print("Preprocessing...")
+    processed_sub_data = preprocess(sub_data)
+    print("Saving data...")
+    np.save(TXT_FILEPATH.replace('.txt', 'raw_%d.npy' % i), sub_data)
+    np.save(TXT_FILEPATH.replace('.txt', '%d.npy' % i), processed_sub_data)
+    # print("Generating sequences...")
+    # gen_sequences(processed_data)
+print('Done')
+
+
+# def main():
+print("Reading CSV...")
+data = load_data(ATTACK_TXT_FILEPATH)
+print("Preprocessing...")
+processed_data = preprocess(data)
+print("Saving data...")
+np.save(TXT_FILEPATH.replace('.txt', 'raw_attack.npy'), data)
+np.save(TXT_FILEPATH.replace('.txt', '_attack.npy'), processed_data)
+
+types = enum_to_onehot(data[:, 1])
+for i in range(types.shape[1]):
+    sub_data = data[types[:, i] == 1.0, :]
+    print("Preprocessing...")
+    processed_sub_data = preprocess(sub_data)
+    print("Saving data...")
+    np.save(TXT_FILEPATH.replace('.txt', 'raw_%d_attack.npy' % i), sub_data)
+    np.save(TXT_FILEPATH.replace('.txt', '%d_attack.npy' % i), processed_sub_data)
+    # print("Generating sequences...")
+    # gen_sequences(processed_data)
+print('Done')
+
+# if __name__ == '__main__':
+#     main()

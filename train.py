@@ -25,7 +25,7 @@ ENCODER_MODEL_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetecti
 # X_VALIDATION_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\x_validation.mm'
 # Y_VALIDATION_MM_FILEPATH = r'C:\Users\booga\Dropbox\projects\PacketsAnomalyDetection\Argus_Protocol_Research\y_validation.mm'
 ENCODING_DIM = 60
-SLIDING_WINDOW_WIDTH = 50
+SLIDING_WINDOW_WIDTH = 30
 
 
 def generator(data, window_size, batch_size):
@@ -33,8 +33,9 @@ def generator(data, window_size, batch_size):
     while True:
         for i in range(int(np.ceil((data.shape[0] - window_size) / batch_size))):
             y = data[i * batch_size + window_size - 1: (i + 1) * batch_size + window_size - 1, :]
-            x = np.zeros((y.shape[0], window_size - 1, features))
-            for j in range(batch_size):
+            current_batch_size = y.shape[0]
+            x = np.zeros((current_batch_size, window_size - 1, features))
+            for j in range(current_batch_size):
                 x[j, :, :] = data[i * batch_size + j: i * batch_size + j + window_size - 1, :]
             yield (x, y)
 
@@ -63,10 +64,10 @@ model.add(Dropout(DROUPUT_RATE, input_shape=(100,), name='dropout2'))
 model.add(Dense(packet_features, input_shape=(100,), activation='sigmoid', name='dense2'))
 model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=[metrics.binary_accuracy])
 callbacks = [EarlyStopping(patience=10), ModelCheckpoint(ENCODER_MODEL_FILEPATH, save_best_only=True)]
+# TODO: split the packet by enums, and use on each a softmax activation + crossentropy
 
 
-
-batch_size = 256
+batch_size = 64
 model.fit_generator(generator(data[:train_size, :], SLIDING_WINDOW_WIDTH, batch_size),
                     steps_per_epoch=int(np.ceil(train_size / batch_size)),
                     epochs=50,
