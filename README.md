@@ -1,3 +1,8 @@
+txt data files are not included, and should be added to the ex1\2\deep dirs
+ex1 dir should have the regular and the attack files number 01
+ex2 dir should have the regular and the attack files number 02
+deep dir should have the regular file number 01
+
 ex1 and ex2 both contain a main.py file that runs without parameters.
 The main.py produces .png image files of the graphs that show an indication
 regarding the nature and the position of the attack in the recording.
